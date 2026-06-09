@@ -1,0 +1,55 @@
+name: ABI Determinism & Dispatch
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  sast:
+    name: Core Security Evaluation
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+    uses: WatchZork/.github/.github/workflows/main.yml@main
+    secrets:
+      ORG_PAT: ${{ secrets.ORG_PAT }}
+      LOCAL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  abi-validation:
+    name: Cross-Architecture Alignment Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Multilib
+        run: sudo apt-get update && sudo apt-get install -y gcc-multilib
+      - name: Compile Static Assertions (x64 & x86)
+        run: |
+          gcc -m64 tests/abi_padding_test.c -o test_64
+          gcc -m32 tests/abi_padding_test.c -o test_32
+          
+  trigger-downstream:
+    name: Dispatch Submodule Updates
+    needs: abi-validation
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger WZDK
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.ORG_PAT }}
+          repository: WatchZork/WZDK
+          event-type: abi-updated
+      - name: Trigger WZDS
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.ORG_PAT }}
+          repository: WatchZork/WZDS
+          event-type: abi-updated
